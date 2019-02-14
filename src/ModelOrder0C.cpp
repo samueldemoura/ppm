@@ -1,71 +1,96 @@
 #include <list>
+#include <tuple>
 #include "ModelOrder0C.h"
 
 ModelOrder0C::ModelOrder0C() {
 	max_context_length = 4;
 }
 
-void ModelOrder0C::IncrementSymbolCount(Node *father, const char symbol, bool found, int found_index) {
-	/*if (found) {
-		father->children[found_index]->count++;
+void ModelOrder0C::IncrementSymbolCount(Node *father, const unsigned char symbol) {
+	if (father->children[symbol]) {
+		father->children[symbol]->count++;
 	} else {
-		// Could not find a child node for the symbol. Create it:
+		// Could not find a child node for the symbol. Create it
 		Node *new_node = (Node*) malloc(sizeof(Node));
 		new_node->symbol = symbol;
 		new_node->count = 1;
 
+		for(int i = 0; i < 256; i++){
+			new_node->children[i] = NULL;
+		}
+
 		// Link it to the father node
-		father->children[reinterpret_cast<unsigned short int>(&symbol)] = new_node;
-	}*/
-}
-
-void ModelOrder0C::FindContext(Node *father, char symbol, bool &encoded) {
-	// TODO: fix this. completely broken atm
-	bool found = false;
-	unsigned int total = 1, low = 0, high = 1;
-
-	if (father_node->children[(unsigned int)symbol]) {
-		// TODO: does this "non-null" check-if actually work? Behaviour I want is: only go into
-		// this block if child[symbol] is an already instantiated, non-null Node struct
-		found = true;
-		low = total;
-		high = low + father_node->children[(unsigned int)symbol]->count;
+		father->children[symbol] = new_node;
 	}
 }
 
-void ModelOrder0C::Encode() {
-	// Initialize PPM tree
-	Node *tree = (Node*) malloc(sizeof(Node));
+std::tuple<unsigned int, unsigned int, unsigned int> ModelOrder0C::GetInterval(Node *father, unsigned char symbol) {
+	unsigned int total = 1, low = 0, high = 1;
 
-	char buf;
-	std::list<char> last_seen;
-	while (mSource->read(&buf, sizeof(char))) {
-		bool encoded = false;
+	// Cumulatively sum the node's count for each one that has been initialized...
+	for(int i = 0; i < 256; i++){
+		if (father->children[i]) {
+			// ...and save interval boundries when the node's symbol is the one thas was read
+			if(i == symbol){
+				low = total;
+				high = low + father->children[i]->count;
+			}
+			total += father->children[i]->count;
+		}
+	}
+	
+	return std::make_tuple(low, high, total);
+}
+
+void ModelOrder0C::Encode() {
+	// Initialize PPM tree 
+	Node *tree = (Node*) malloc(sizeof(Node));
+	for(int i = 0; i < 256; i++){
+		tree->children[i] = NULL;
+	}
+
+	unsigned char buf;
+	std::list<unsigned char> last_seen;
+	while (mSource->read((char*)&buf, sizeof(char))) {
 		unsigned short int max_depth = std::min<unsigned short int>(
 			max_context_length,
 			last_seen.size()
 			);
+		std::tuple<unsigned int, unsigned int, unsigned int> interval; 
+		bool encoded = false;
 
 		// Start at the root and traverse down, up to the max context length (limited by last seen)
 		for (int context_size = 0; context_size <= max_depth; ++context_size) {
 			Node *current_node = tree;
-
 			// Advance iterator to last_seen[context_size]
-			std::list<char>::iterator last_seen_it = last_seen.begin();
+			std::list<unsigned char>::iterator last_seen_it = last_seen.begin();
 			std::advance(last_seen_it, context_size);
 
 			// Traverse down
 			for(; last_seen_it != last_seen.end(); ++last_seen_it) {
-				current_node = current_node->children[(unsigned int)*last_seen_it];
+				current_node = current_node->children[*last_seen_it];
+			}
+			
+			if(!encoded){
+				interval = GetInterval(current_node, buf);
+
+				// Encode the symbol if it has been found in the context (low is not 0)
+				if(std::get<0>(interval)){
+					encoded = true;
+					mAC.Encode(std::get<0>(interval), std::get<1>(interval), std::get<2>(interval));
+				}
+				// Encode the escape if the symbol was not found but the context is filled (total is not 1)
+				else if(std::get<2>(interval) > 1) {
+					mAC.Encode(std::get<0>(interval), std::get<1>(interval), std::get<2>(interval)); 
+				}
 			}
 
-			FindContext(current_node, buf, encoded);
+			IncrementSymbolCount(current_node, buf);
 		}
 
-		// If the context hasn't been found through all tries, then a fixed prediction is made
-		if (!encoded) {
-			mAC.Encode(buf, buf+1, 255); // TODO: figure out if this should be 255 or 256
-			//encode_symbol(buf, buf+1, MAX_BYTE_VALUE, &outfile);
+		// If the symbol hasn't been encoded, a fixed prediction is made
+		if(!encoded){
+			mAC.Encode(buf, buf+1, 256);
 		}
 
 		// Add symbol to last seen queue, remove furthest away symbol if queue is too big
