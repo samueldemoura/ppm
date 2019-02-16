@@ -1,5 +1,6 @@
 #include <list>
 #include <tuple>
+#include <iostream> // TODO: remove after testing
 #include "ModelOrder0C.h"
 
 ModelOrder0C::ModelOrder0C() {
@@ -24,6 +25,36 @@ void ModelOrder0C::IncrementSymbolCount(Node *father, const unsigned char symbol
 	}
 }
 
+void ModelOrder0C::IncrementSymbolCount(DecNode *father, const unsigned char symbol) {
+	if (father->children[symbol]) {
+		father->children[symbol]->count++;
+	} else {
+		// Could not find a child node for the symbol. Create it
+		DecNode *new_node = (DecNode*) malloc(sizeof(DecNode));
+		new_node->symbol = symbol;
+		new_node->count = 1;
+
+		for(int i = 0; i < 256; i++){
+			new_node->children[i] = NULL;
+		}
+
+		// Link it to the father node
+		father->children[symbol] = new_node;
+		new_node->father = father;
+
+		// Create escape if necessary
+		if (!father->children[0]) {
+			DecNode *new_escape = (DecNode*) malloc(sizeof(DecNode));
+			new_escape->symbol = 0;
+			new_escape->count = 1;
+
+			// Link it to the father node
+			father->children[symbol] = new_escape;
+			new_escape->father = father;
+		}
+	}
+}
+
 std::tuple<unsigned int, unsigned int, unsigned int> ModelOrder0C::GetInterval(Node *father, unsigned char symbol) {
 	unsigned int total = 1, low = 0, high = 1;
 
@@ -38,12 +69,12 @@ std::tuple<unsigned int, unsigned int, unsigned int> ModelOrder0C::GetInterval(N
 			total += father->children[i]->count;
 		}
 	}
-	
+
 	return std::make_tuple(low, high, total);
 }
 
 void ModelOrder0C::Encode() {
-	// Initialize PPM tree 
+	// Initialize PPM tree
 	Node *tree = (Node*) malloc(sizeof(Node));
 	for(int i = 0; i < 256; i++){
 		tree->children[i] = NULL;
@@ -56,7 +87,7 @@ void ModelOrder0C::Encode() {
 			max_context_length,
 			last_seen.size()
 			);
-		std::tuple<unsigned int, unsigned int, unsigned int> interval; 
+		std::tuple<unsigned int, unsigned int, unsigned int> interval;
 		bool encoded = false;
 
 		// Start at the root and traverse down, up to the max context length (limited by last seen)
@@ -70,7 +101,7 @@ void ModelOrder0C::Encode() {
 			for(; last_seen_it != last_seen.end(); ++last_seen_it) {
 				current_node = current_node->children[*last_seen_it];
 			}
-			
+
 			if(!encoded){
 				interval = GetInterval(current_node, buf);
 
@@ -81,7 +112,7 @@ void ModelOrder0C::Encode() {
 				}
 				// Encode the escape if the symbol was not found but the context is filled (total is not 1)
 				else if(std::get<2>(interval) > 1) {
-					mAC.Encode(std::get<0>(interval), std::get<1>(interval), std::get<2>(interval)); 
+					mAC.Encode(std::get<0>(interval), std::get<1>(interval), std::get<2>(interval));
 				}
 			}
 
@@ -101,34 +132,65 @@ void ModelOrder0C::Encode() {
 	}
 }
 
-void ModelOrder0C::Decode()
-{
-	// TODO
-	/*unsigned int symbol;
-
-	do
-	{
-		unsigned int value;
-
-		// Wert lesen
-		value = mAC.DecodeTarget( mTotal );
-
-		unsigned int low_count = 0;
-
-		// Symbol bestimmen
-		for( symbol=0; low_count + mCumCount[symbol] <= value; symbol++ )
-			low_count += mCumCount[symbol];
-
-		// Symbol schreiben
-		if( symbol < 256 )
-			mTarget->write( reinterpret_cast<char*>(&symbol), sizeof( char ) );
-
-		// Dekoder anpassen
-		mAC.Decode( low_count, low_count + mCumCount[ symbol ] );
-
-		// update model
-		mCumCount[ symbol ]++;
-		mTotal++;
+void ModelOrder0C::Decode() {
+	// Initialize PPM tree
+	DecNode *tree = (DecNode*) malloc(sizeof(DecNode));
+	tree->father = tree;
+	for(int i = 0; i < 256; i++){
+		tree->children[i] = NULL;
 	}
-	while( symbol != 256 );*/
+
+	// Queue of K last seen symbols
+	std::list<unsigned char> last_seen;
+
+	// Pointer for tree navigation
+	DecNode *ptr = tree;
+
+	// Start at context -1, where total is 256
+	unsigned int mTotal = 256;
+	short int cur_context = -1;
+
+	unsigned int value, symbol;
+
+	int i = 0; // TODO: don't use this as stopping condition. only here while testing
+	do {
+		value = mAC.DecodeTarget(mTotal);
+		std::cout << value << " " << value+1 << " " << mTotal << "\n";
+
+		// Translate range to symbol if not in context -1 or value was not escape
+		if (cur_context == -1 || value == 0) {
+			symbol = value;
+		} else {
+			unsigned int sum = 0;
+			for (int i = 0; i < 256; ++i) {
+				if (ptr->children[i]) {
+					sum += ptr->children[i]->count;
+
+					if (sum > value) {
+						symbol = i;
+						break;
+					}
+				}
+			}
+		}
+
+		if (symbol == 0) {
+			// Escape. Go up a level in the tree
+			std::cout << "RECEIVED ESCAPE! CLIMBING UP FROM CONTEXT " << cur_context << "\n";
+			//ptr = ptr->father;
+			--cur_context;
+		} else {
+			// Received a valid symbol
+			std::cout << "RECEIVED SYMBOL: " << symbol << "\n";
+			/*if (cur_context != -1) {
+				// Descend tree if not in context -1
+				ptr = ptr->children[symbol];
+			} ++cur_context;*/
+
+			// Traverse down the tree, and for each context increment symbol count
+			// TODO
+		}
+
+		mAC.Decode(symbol, symbol+1);
+	} while (i++ < 8);
 }
