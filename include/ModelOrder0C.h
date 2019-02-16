@@ -13,8 +13,7 @@ protected:
 	void Encode();
 	void Decode();
 
-	void IncrementSymbolCount(Node *father, unsigned char symbol);
-	void IncrementSymbolCount(DecNode *father, unsigned char symbol);
+	void IncrementSymbolCount(Node *father, unsigned char symbol, bool is_decoding);
 	std::tuple<unsigned int, unsigned int, unsigned int> GetInterval(Node *father, unsigned char symbol);
 };
 

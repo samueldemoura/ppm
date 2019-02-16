@@ -2,24 +2,14 @@
 #define __NODE_H__
 
 /*
- * Basic node struct used during encoding
+ * Basic node struct used during encoding and decoding
  */
 typedef struct Node {
 	char symbol;
 	unsigned int count;
 
 	Node *children[256];
+	Node *father;
 } Node;
-
-/*
- * Slightly less RAM-friendly node struct used during decoding
- */
-typedef struct DecNode {
-	char symbol;
-	unsigned int count;
-
-	DecNode *children[256];
-	DecNode *father;
-} DecNode;
 
 #endif
