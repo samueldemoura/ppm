@@ -34,6 +34,8 @@ int main(int argc, char *argv[]) {
 			sizeof(unsigned short int)
 			);
 
+		std::cout << "Decoding... k=" << model->max_context_length << std::endl;
+
 		// Decode
 		model->Process(&infile, &outfile, MODE_DECODE);
 	} else {
@@ -52,6 +54,8 @@ int main(int argc, char *argv[]) {
 			reinterpret_cast<const char*>(&model->max_context_length),
 			sizeof(unsigned short int)
 			);
+
+		std::cout << "Encoding... k=" << model->max_context_length << std::endl;
 
 		// Encode
 		model->Process(&infile, &outfile, MODE_ENCODE);
