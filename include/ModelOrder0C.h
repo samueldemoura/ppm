@@ -3,6 +3,7 @@
 
 #include "ModelI.h"
 #include "Node.h"
+#include <list>
 
 class ModelOrder0C : public ModelI
 {
@@ -13,8 +14,9 @@ protected:
 	void Encode();
 	void Decode();
 
-	void IncrementSymbolCount(Node *father, unsigned char symbol, bool is_decoding);
+	void IncrementSymbolCount(Node *father, unsigned char symbol);
 	std::tuple<unsigned int, unsigned int, unsigned int> GetInterval(Node *father, unsigned char symbol);
+	void UpdateTree(Node *root, unsigned char symbol, std::list<unsigned char> last_seen);
 };
 
 #endif

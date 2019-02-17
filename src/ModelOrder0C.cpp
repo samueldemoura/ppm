@@ -7,13 +7,12 @@ ModelOrder0C::ModelOrder0C() {
 	max_context_length = 4;
 }
 
-void ModelOrder0C::IncrementSymbolCount(Node *father, const unsigned char symbol, bool is_decoding) {
+void ModelOrder0C::IncrementSymbolCount(Node *father, const unsigned char symbol) {
 	if (father->children[symbol]) {
 		//std::cout << "PLUS COUNT \n";
 		father->children[symbol]->count++;
 	} else {
 		// Could not find a child node for the symbol. Create it
-		//std::cout << symbol <<" NEW NODE\n";
 		Node *new_node = (Node*) malloc(sizeof(Node));
 		new_node->symbol = symbol;
 		new_node->count = 1;
@@ -25,16 +24,6 @@ void ModelOrder0C::IncrementSymbolCount(Node *father, const unsigned char symbol
 
 		// Link it to the father node
 		father->children[symbol] = new_node;
-
-		if (is_decoding) {
-			// Create escape as well, if necessary
-			if (!father->children[0]) {
-				Node *new_esc = (Node*) malloc(sizeof(Node));
-				new_esc->count = 1;
-				new_esc->father = father;
-				father->children[0] = new_esc;
-			}
-		}
 	}
 }
 
@@ -54,6 +43,27 @@ std::tuple<unsigned int, unsigned int, unsigned int> ModelOrder0C::GetInterval(N
 	}
 
 	return std::make_tuple(low, high, total);
+}
+
+void ModelOrder0C::UpdateTree(Node *root, unsigned char symbol, std::list<unsigned char> last_seen){
+	unsigned short int max_depth = std::min<unsigned short int>(
+			max_context_length,
+			last_seen.size()
+			);
+	
+		for (int context_size = 0; context_size <= max_depth; ++context_size) {
+			Node *current_node = root;
+			// Advance iterator to last_seen[context_size]
+			std::list<unsigned char>::iterator last_seen_it = last_seen.begin();
+			std::advance(last_seen_it, context_size);
+
+			// Traverse down
+			for(; last_seen_it != last_seen.end(); ++last_seen_it) {
+				current_node = current_node->children[*last_seen_it];
+			}	
+			
+			IncrementSymbolCount(current_node, symbol);
+		}
 }
 
 void ModelOrder0C::Encode() {
@@ -99,7 +109,7 @@ void ModelOrder0C::Encode() {
 				}
 			}
 
-			IncrementSymbolCount(current_node, buf, false);
+			IncrementSymbolCount(current_node, buf);
 		}
 
 		// If the symbol hasn't been encoded, a fixed prediction is made
@@ -112,6 +122,7 @@ void ModelOrder0C::Encode() {
 		if (last_seen.size() > max_context_length) {
 			last_seen.pop_front();
 		}
+		
 	}
 }
 
@@ -132,23 +143,30 @@ void ModelOrder0C::Decode() {
 	unsigned int mTotal = 256;
 	short int cur_context = -1;
 
-	unsigned int value, symbol;
+	unsigned int value, symbol, low, high;
 
 	int count = 0; // TODO: don't use this as stopping condition. only here while testing
 	do {
 		value = mAC.DecodeTarget(mTotal);
-		std::cout << value << " " << value+1 << " " << mTotal << " at context " << cur_context << "\n";
+		std::cout << "Value: " << value << ", Total:  " << mTotal << ", Context: " << cur_context << "\n";
 
 		// Translate range to symbol if not in context -1 or value was not escape
-		if (cur_context == -1 || value == 0) {
+		if (value == 0) {
 			symbol = value;
+			low = 0;
+			high = 1;
+		} else if (cur_context == -1){
+			symbol = value;
+			low = value;
+			high = value + 1;
 		} else {
-			unsigned int sum = 0;
-			for (int i = 0; i < 256; ++i) {
+			high = 1;
+			for (unsigned int i = 0; i < 256; ++i) {
 				if (ptr->children[i]) {
-					sum += ptr->children[i]->count;
+					low = high;
+					high += ptr->children[i]->count;
 
-					if (sum > value) {
+					if (value >= low && value < high) {
 						symbol = i;
 						break;
 					}
@@ -156,52 +174,41 @@ void ModelOrder0C::Decode() {
 			}
 		}
 
+		mAC.Decode(low, high);
+		std::cout << "Low: " << low << ", High:  " << high  << "\n";
+
 		if (symbol == 0) {
-			// Escape. Go up a level in the tree
-			std::cout << "RECEIVED ESCAPE! CLIMBING UP FROM CONTEXT " << cur_context << "\n";
-			--cur_context;
-			ptr = ptr->father;
+			// Escape. Go up a level in the tree 
+			std::cout << "RECEIVED ESCAPE!\n";
+			cur_context--;
+			
+			// Make sure that ptr doesn't go higher than the root
+			if(cur_context != -1){
+				ptr = ptr->father;
+			}
+
 		} else {
 			// Received a valid symbol
 			std::cout << "RECEIVED SYMBOL: " << (char)symbol << "\n";
 			mTarget->write(reinterpret_cast<char*>(&symbol), sizeof(char));
 
-			/*if (cur_context == -1) {
-				ptr = tree;
-				IncrementSymbolCount(ptr, symbol, true);
-			} else*/ {
-				for (int cur_height = 0; cur_height <= cur_context + 1; ++cur_height) {
-					Node *cur_node = tree;
-
-					std::list<unsigned char>::iterator last_seen_it = last_seen.begin();
-					std::advance(last_seen_it, cur_height);
-
-					// Traverse down
-					for(; last_seen_it != last_seen.end(); ++last_seen_it) {
-						//std::cout << "Going down... " << *last_seen_it << "\n";
-						cur_node = cur_node->children[*last_seen_it];
-					}
-
-					IncrementSymbolCount(cur_node, symbol, true);
-
-					if (cur_height == 0) {
-						ptr = cur_node;
-					}
-				}
+			// If you already were in the root, don't go down!
+			if(cur_context != -1){
+				ptr = ptr->children[symbol];
 			}
 
 			cur_context++;
+			UpdateTree(tree, symbol, last_seen);			
 		}
 
 		// Update mTotal to reflect the sum of counts in this context
 		if (cur_context == -1) {
 			mTotal = 256;
 		} else {
-			mTotal = 0;
+			mTotal = 1;
 			for (int i = 0; i < 256; ++i) {
 				if (ptr->children[i]) {
 					mTotal += ptr->children[i]->count;
-					//std::cout << "Found child at #" << i << " with count " << ptr->children[i]->count << "\n";
 				}
 			}
 		}
@@ -214,6 +221,7 @@ void ModelOrder0C::Decode() {
 			}
 		}
 
-		mAC.Decode(symbol, symbol+1);
+		std::cout << "--------------\n";
+
 	} while (count++ < 17);
 }
