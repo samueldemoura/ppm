@@ -11,8 +11,8 @@ public:
 	ModelOrder0C();
 
 protected:
-	void Encode();
-	void Decode();
+	unsigned long Encode();
+	void Decode(unsigned long symbol_count);
 
 	void IncrementSymbolCount(Node *father, unsigned char symbol);
 	std::tuple<unsigned int, unsigned int, unsigned int> GetInterval(Node *father, unsigned char symbol);

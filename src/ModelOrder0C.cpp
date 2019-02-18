@@ -66,7 +66,7 @@ void ModelOrder0C::UpdateTree(Node *root, unsigned char symbol, std::list<unsign
 		}
 }
 
-void ModelOrder0C::Encode() {
+unsigned long ModelOrder0C::Encode() {
 	// Initialize PPM tree
 	Node *tree = (Node*) malloc(sizeof(Node));
 	for(int i = 0; i < 256; i++){
@@ -74,6 +74,7 @@ void ModelOrder0C::Encode() {
 	}
 
 	unsigned char buf;
+	unsigned long symbol_count = 0;
 	std::list<unsigned char> last_seen;
 	while (mSource->read((char*)&buf, sizeof(char))) {
 		unsigned short int max_depth = std::min<unsigned short int>(
@@ -102,10 +103,12 @@ void ModelOrder0C::Encode() {
 				if(std::get<0>(interval)){
 					encoded = true;
 					mAC.Encode(std::get<0>(interval), std::get<1>(interval), std::get<2>(interval));
+					symbol_count++;
 				}
 				// Encode the escape if the symbol was not found but the context is filled (total is not 1)
 				else if(std::get<2>(interval) > 1) {
 					mAC.Encode(std::get<0>(interval), std::get<1>(interval), std::get<2>(interval));
+					symbol_count++;
 				}
 			}
 
@@ -115,6 +118,7 @@ void ModelOrder0C::Encode() {
 		// If the symbol hasn't been encoded, a fixed prediction is made
 		if(!encoded){
 			mAC.Encode(buf, buf+1, 256);
+			symbol_count++;
 		}
 
 		// Add symbol to last seen queue, remove furthest away symbol if queue is too big
@@ -122,11 +126,12 @@ void ModelOrder0C::Encode() {
 		if (last_seen.size() > max_context_length) {
 			last_seen.pop_front();
 		}
-		
 	}
+
+	return symbol_count;
 }
 
-void ModelOrder0C::Decode() {
+void ModelOrder0C::Decode(unsigned long symbol_count) {
 	// Initialize PPM tree
 	Node *tree = (Node*) malloc(sizeof(Node));
 	for(int i = 0; i < 256; i++){
@@ -145,10 +150,8 @@ void ModelOrder0C::Decode() {
 
 	unsigned int value, symbol, low, high;
 
-	int count = 0; // TODO: don't use this as stopping condition. only here while testing
 	do {
 		value = mAC.DecodeTarget(mTotal);
-		std::cout << "Value: " << value << ", Total:  " << mTotal << ", Context: " << cur_context << "\n";
 
 		// Translate range to symbol if not in context -1 or value was not escape
 		if (value == 0) {
@@ -175,11 +178,9 @@ void ModelOrder0C::Decode() {
 		}
 
 		mAC.Decode(low, high);
-		std::cout << "Low: " << low << ", High:  " << high  << "\n";
 
 		if (symbol == 0) {
 			// Escape. Go up a level in the tree 
-			std::cout << "RECEIVED ESCAPE!\n";
 			cur_context--;
 			
 			// Make sure that ptr doesn't go higher than the root
@@ -189,10 +190,9 @@ void ModelOrder0C::Decode() {
 
 		} else {
 			// Received a valid symbol
-			std::cout << "RECEIVED SYMBOL: " << (char)symbol << "\n";
 			mTarget->write(reinterpret_cast<char*>(&symbol), sizeof(char));
 
-			// If you already were in the root, don't go down!
+			// If you were already in the root, don't go down!
 			if(cur_context != -1){
 				ptr = ptr->children[symbol];
 			}
@@ -220,8 +220,5 @@ void ModelOrder0C::Decode() {
 				last_seen.pop_front();
 			}
 		}
-
-		std::cout << "--------------\n";
-
-	} while (count++ < 17);
+	} while (symbol_count--);
 }

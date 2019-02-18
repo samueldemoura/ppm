@@ -55,6 +55,7 @@ int main(int argc, char *argv[]) {
 			sizeof(unsigned short int)
 			);
 
+		
 		std::cout << "Encoding... k=" << model->max_context_length << std::endl;
 
 		// Encode
