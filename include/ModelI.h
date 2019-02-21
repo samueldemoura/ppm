@@ -16,8 +16,8 @@ public:
 	unsigned short int max_context_length;
 
 protected:
-	virtual unsigned long Encode() = 0;
-	virtual void Decode(unsigned long symbol_count) = 0;
+	virtual unsigned long long Encode() = 0;
+	virtual void Decode(unsigned long long symbol_count) = 0;
 
 	ArithmeticCoderC mAC;
 	fstream *mSource;

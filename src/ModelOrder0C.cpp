@@ -9,7 +9,6 @@ ModelOrder0C::ModelOrder0C() {
 
 void ModelOrder0C::IncrementSymbolCount(Node *father, const unsigned char symbol) {
 	if (father->children[symbol]) {
-		//std::cout << "PLUS COUNT \n";
 		father->children[symbol]->count++;
 	} else {
 		// Could not find a child node for the symbol. Create it
@@ -66,7 +65,7 @@ void ModelOrder0C::UpdateTree(Node *root, unsigned char symbol, std::list<unsign
 		}
 }
 
-unsigned long ModelOrder0C::Encode() {
+unsigned long long ModelOrder0C::Encode() {
 	// Initialize PPM tree
 	Node *tree = (Node*) malloc(sizeof(Node));
 	for(int i = 0; i < 256; i++){
@@ -74,7 +73,7 @@ unsigned long ModelOrder0C::Encode() {
 	}
 
 	unsigned char buf;
-	unsigned long symbol_count = 0;
+	unsigned long long symbol_count = 0;
 	std::list<unsigned char> last_seen;
 	while (mSource->read((char*)&buf, sizeof(char))) {
 		unsigned short int max_depth = std::min<unsigned short int>(
@@ -126,12 +125,28 @@ unsigned long ModelOrder0C::Encode() {
 		if (last_seen.size() > max_context_length) {
 			last_seen.pop_front();
 		}
+
 	}
 
 	return symbol_count;
 }
 
-void ModelOrder0C::Decode(unsigned long symbol_count) {
+void ModelOrder0C::PrintTree(Node* start, Node* ptr) {
+	if(ptr == start){
+		std::cout << "{ Symbol: " << start->symbol << ", Count: " << start->count << ", Here: true, Children: [";
+	} else {
+		std::cout << "{ Symbol: " << start->symbol << ", Count: " << start->count << ", Children: [";
+	}
+	
+	for(int i = 0; i < 256; i++){
+		if(start->children[i]) {
+			PrintTree(start->children[i], ptr);
+		}
+	}
+	std::cout << "] }";
+}
+
+void ModelOrder0C::Decode(unsigned long long symbol_count) {
 	// Initialize PPM tree
 	Node *tree = (Node*) malloc(sizeof(Node));
 	for(int i = 0; i < 256; i++){
@@ -146,25 +161,31 @@ void ModelOrder0C::Decode(unsigned long symbol_count) {
 
 	// Start at context -1, where total is 256
 	unsigned int mTotal = 256;
-	short int cur_context = -1;
+	short int minus_one_context = max_context_length + 1;
+	short int cur_context = minus_one_context;
 
-	unsigned int value, symbol, low, high;
+	unsigned int value, low, high;
+	unsigned char symbol;
+	bool is_esc = false;
 
 	do {
-		value = mAC.DecodeTarget(mTotal);
+		value = mAC.DecodeTarget(mTotal); 
 
 		// Translate range to symbol if not in context -1 or value was not escape
-		if (value == 0) {
-			symbol = value;
-			low = 0;
-			high = 1;
-		} else if (cur_context == -1){
+		if (cur_context == minus_one_context) {
 			symbol = value;
 			low = value;
 			high = value + 1;
+			is_esc = false;
+		} else if (value == 0){
+			symbol = value;
+			low = 0;
+			high = 1;
+			is_esc = true;
 		} else {
 			high = 1;
-			for (unsigned int i = 0; i < 256; ++i) {
+			is_esc = false;
+			for (unsigned char i = 0; i < 256; ++i) {
 				if (ptr->children[i]) {
 					low = high;
 					high += ptr->children[i]->count;
@@ -178,31 +199,36 @@ void ModelOrder0C::Decode(unsigned long symbol_count) {
 		}
 
 		mAC.Decode(low, high);
+		
+		if (is_esc) {
+			// Shorten context
+			cur_context++;
 
-		if (symbol == 0) {
-			// Escape. Go up a level in the tree 
-			cur_context--;
-			
-			// Make sure that ptr doesn't go higher than the root
-			if(cur_context != -1){
-				ptr = ptr->father;
+			// If it's not -1 context, traverse the tree
+			ptr = tree;
+			if(cur_context != minus_one_context){
+				std::list<unsigned char>::iterator last_seen_it = last_seen.begin();
+				std::advance(last_seen_it, cur_context);
+				for(; last_seen_it != last_seen.end(); ++last_seen_it) {
+					ptr = ptr->children[*last_seen_it];
+				}
 			}
-
+			
 		} else {
 			// Received a valid symbol
 			mTarget->write(reinterpret_cast<char*>(&symbol), sizeof(char));
 
 			// If you were already in the root, don't go down!
-			if(cur_context != -1){
+			if(cur_context != 5){
 				ptr = ptr->children[symbol];
 			}
-
-			cur_context++;
-			UpdateTree(tree, symbol, last_seen);			
+			cur_context--;
+			UpdateTree(tree, symbol, last_seen);	
+			
 		}
 
 		// Update mTotal to reflect the sum of counts in this context
-		if (cur_context == -1) {
+		if (cur_context == minus_one_context) {
 			mTotal = 256;
 		} else {
 			mTotal = 1;
@@ -213,7 +239,7 @@ void ModelOrder0C::Decode(unsigned long symbol_count) {
 			}
 		}
 
-		if (symbol != 0) {
+		if (!is_esc) {
 			// Add symbol to last seen queue, remove furthest away symbol if queue is too big
 			last_seen.push_back(symbol);
 			if (last_seen.size() > max_context_length) {

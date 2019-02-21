@@ -73,7 +73,7 @@ void ArithmeticCoderC::Encode( const unsigned int low_count,
                                const unsigned int total       ) // total < 2^29
 {
 
-    std::cout << low_count << " " << high_count << " " << total << "\n";
+//    std::cout << low_count << " " << high_count << " " << total << "\n";
 
 //    std::cout << "TOTAL = " << total << std::endl;
 //    std::cout << "LOW = " << low_count << std::endl;
