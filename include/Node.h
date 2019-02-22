@@ -9,7 +9,6 @@ typedef struct Node {
 	unsigned int count;
 
 	Node *children[256];
-	Node *father;
 } Node;
 
 #endif

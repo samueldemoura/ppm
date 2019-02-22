@@ -15,7 +15,6 @@ void ModelOrder0C::IncrementSymbolCount(Node *father, const unsigned char symbol
 		Node *new_node = (Node*) malloc(sizeof(Node));
 		new_node->symbol = symbol;
 		new_node->count = 1;
-		new_node->father = father;
 
 		for(int i = 0; i < 256; i++){
 			new_node->children[i] = NULL;
@@ -73,7 +72,7 @@ unsigned long long ModelOrder0C::Encode() {
 	}
 
 	unsigned char buf;
-	unsigned long long symbol_count = 0;
+	unsigned long long byte_count = 0;
 	std::list<unsigned char> last_seen;
 	while (mSource->read((char*)&buf, sizeof(char))) {
 		unsigned short int max_depth = std::min<unsigned short int>(
@@ -82,6 +81,7 @@ unsigned long long ModelOrder0C::Encode() {
 			);
 		std::tuple<unsigned int, unsigned int, unsigned int> interval;
 		bool encoded = false;
+		byte_count++;
 
 		// Start at the root and traverse down, up to the max context length (limited by last seen)
 		for (int context_size = 0; context_size <= max_depth; ++context_size) {
@@ -102,12 +102,10 @@ unsigned long long ModelOrder0C::Encode() {
 				if(std::get<0>(interval)){
 					encoded = true;
 					mAC.Encode(std::get<0>(interval), std::get<1>(interval), std::get<2>(interval));
-					symbol_count++;
 				}
 				// Encode the escape if the symbol was not found but the context is filled (total is not 1)
 				else if(std::get<2>(interval) > 1) {
 					mAC.Encode(std::get<0>(interval), std::get<1>(interval), std::get<2>(interval));
-					symbol_count++;
 				}
 			}
 
@@ -117,7 +115,6 @@ unsigned long long ModelOrder0C::Encode() {
 		// If the symbol hasn't been encoded, a fixed prediction is made
 		if(!encoded){
 			mAC.Encode(buf, buf+1, 256);
-			symbol_count++;
 		}
 
 		// Add symbol to last seen queue, remove furthest away symbol if queue is too big
@@ -128,7 +125,7 @@ unsigned long long ModelOrder0C::Encode() {
 
 	}
 
-	return symbol_count;
+	return byte_count;
 }
 
 void ModelOrder0C::PrintTree(Node* start, Node* ptr) {
@@ -146,7 +143,7 @@ void ModelOrder0C::PrintTree(Node* start, Node* ptr) {
 	std::cout << "] }";
 }
 
-void ModelOrder0C::Decode(unsigned long long symbol_count) {
+void ModelOrder0C::Decode(unsigned long long byte_count) {
 	// Initialize PPM tree
 	Node *tree = (Node*) malloc(sizeof(Node));
 	for(int i = 0; i < 256; i++){
@@ -217,14 +214,14 @@ void ModelOrder0C::Decode(unsigned long long symbol_count) {
 		} else {
 			// Received a valid symbol
 			mTarget->write(reinterpret_cast<char*>(&symbol), sizeof(char));
+			byte_count--;
 
 			// If you were already in the root, don't go down!
-			if(cur_context != 5){
+			if(cur_context !=  minus_one_context){
 				ptr = ptr->children[symbol];
 			}
 			cur_context--;
 			UpdateTree(tree, symbol, last_seen);	
-			
 		}
 
 		// Update mTotal to reflect the sum of counts in this context
@@ -246,5 +243,5 @@ void ModelOrder0C::Decode(unsigned long long symbol_count) {
 				last_seen.pop_front();
 			}
 		}
-	} while (symbol_count--);
+	} while(byte_count);
 }

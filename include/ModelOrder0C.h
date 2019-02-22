@@ -12,7 +12,7 @@ public:
 
 protected:
 	unsigned long long Encode();
-	void Decode(unsigned long long symbol_count);
+	void Decode(unsigned long long byte_count);
 
 	void IncrementSymbolCount(Node *father, unsigned char symbol);
 	std::tuple<unsigned int, unsigned int, unsigned int> GetInterval(Node *father, unsigned char symbol);

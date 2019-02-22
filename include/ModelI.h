@@ -17,7 +17,7 @@ public:
 
 protected:
 	virtual unsigned long long Encode() = 0;
-	virtual void Decode(unsigned long long symbol_count) = 0;
+	virtual void Decode(unsigned long long byte_count) = 0;
 
 	ArithmeticCoderC mAC;
 	fstream *mSource;
